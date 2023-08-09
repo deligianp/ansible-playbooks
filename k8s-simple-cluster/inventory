@@ -1,0 +1,6 @@
+[k8s-proxy]
+
+[k8s-nodes]
+62.217.122.88   ansible_user=ubuntu
+
+[k8s-control-plane]

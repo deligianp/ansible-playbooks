@@ -1,0 +1,99 @@
+---
+
+- hosts: k8s-nodes
+  name: Create a basic k8s cluster over Ubuntu existing VMs
+  become: yes
+  tasks:
+    - name: Configuring module `overlay`
+      modprobe:
+        name: overlay
+        persistent: present
+    - name: Configuring module `br_netfilter`
+      modprobe:
+        name: br_netfilter
+        persistent: present
+    - name: Setting system variable `net.bridge.bridge-nf-call-iptables` to 1
+      sysctl:
+        name: net.bridge.bridge-nf-call-iptables
+        value: 1
+    - name: Setting system variable `net.bridge.bridge-nf-call-ip6tables` to 1
+      sysctl:
+        name: net.bridge.bridge-nf-call-ip6tables
+        value: 1
+    - name: Setting system variable `net.ipv4.ip_forward` to 1
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: 1
+    # Ubuntu related tasks
+    - name: Installing containerd dependencies
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        update_cache: true
+      when: ansible_distribution == "Ubuntu"
+    - name: Creating /etc/apt/keyrings directory for storing docker repository key
+      file:
+        mode: 0o755
+        state: directory
+        path: /etc/apt/keyrings
+      when: ansible_distribution == "Ubuntu"
+    - name: Downloading docker repository key
+      get_url:
+        mode: 0o644
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+      when: ansible_distribution == "Ubuntu"
+    - name: Setting up docker repository
+      lineinfile:
+        line: 'deb [arch={{ "amd64" if ansible_architecture == "x86_64" else ansible_architecture }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable'
+        path: /etc/apt/sources.list.d/docker.list
+        create: true
+      when: ansible_distribution == "Ubuntu"
+    - name: Installing node container runtime (containerd)
+      apt:
+        name: containerd.io
+        update_cache: true
+      when:
+        - ansible_distribution == "Ubuntu"
+        - container_runtime=="containerd"
+    - name: Configuring container runtime to use proper service manager (for containerd)
+      copy:
+        content: |
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+            [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+              SystemdCgroup = true
+        dest: /etc/containerd/config.toml
+      when:
+        - ansible_distribution == "Ubuntu"
+        - container_runtime=="containerd"
+
+    # Kube-related requirements
+    - name: Installing Kubernetes tools' requirements
+      apt:
+        name: apt-transport-https
+        update_cache: true
+      when: ansible_distribution == "Ubuntu"
+    - name: Downloading Google Cloud repository key
+      get_url:
+        mode: 0o644
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        dest: /etc/apt/keyrings/kubernetes-archive-keyring.asc
+      when: ansible_distribution == "Ubuntu"
+    - name: Setting up docker repository
+      lineinfile:
+        line: 'deb [arch={{ "amd64" if ansible_architecture == "x86_64" else ansible_architecture }} signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.asc] https://apt.kubernetes.io/ kubernetes-xenial main'
+        path: /etc/apt/sources.list.d/kubernetes.list
+        create: true
+      when: ansible_distribution == "Ubuntu"
+    - name: Installing kubeadm, kubelet and kubectl
+      apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        update_cache: true
+      when:
+        - ansible_distribution == "Ubuntu"
+        - use_kubeadm
